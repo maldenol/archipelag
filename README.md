@@ -29,6 +29,42 @@ You start on **Caldera**, next to a landed rocket. Walk the surface, leave it wi
 - The prediction is drawn in the frame of whichever body pulls hardest. Crosses mark leaving that frame; rings mark entering another.
 - A yellow diamond marks a predicted impact. A navball under the ship shows the horizon, prograde, retrograde, and the local up and down.
 
+## Screenshots
+
+Frames from a running game. `tools/capture_shots.gd` can take them again.
+
+On Caldera, next to the landed rocket.
+
+![Standing on Caldera beside the rocket](screenshots/caldera-surface.png)
+
+Firing into the sky. The rounds are the bright dots above the crosshair.
+
+![Shooting on Caldera](screenshots/shooting.png)
+
+Coasting above Caldera. The corner map draws the predicted path in cyan, and the navball sits under the ship.
+
+![Rocket coasting, with the predicted path on the map](screenshots/rocket-trajectory.png)
+
+The system map: orbits around Hearth, Cinder’s loop around Mote, and the rocket’s coast leaving Caldera.
+
+![System map with orbits and the coast trajectory](screenshots/system-map.png)
+
+Out of the rocket above Lumen.
+
+![Leaving the rocket in space above Lumen](screenshots/eva-space.png)
+
+Lumen.
+
+![On the surface of Lumen](screenshots/lumen.png)
+
+Vellum.
+
+![On the surface of Vellum](screenshots/vellum.png)
+
+Mote, with Cinder in the sky.
+
+![On Mote, looking toward its moon Cinder](screenshots/mote.png)
+
 ## The system
 
 The star is **Hearth**. Four planets orbit it, and one moon orbits the outermost planet. Each world has its own radius, surface gravity, spin, atmosphere, and terrain seed.
@@ -94,6 +130,7 @@ scripts/rocket.gd         Flight, landing, and the coast prediction.
 scripts/hud.gd            Health, flight card, map, and navball.
 scripts/menu.gd           Title, pause, controls, and the death screen.
 shaders/                  Terrain, atmosphere, and the starfield sky.
+tools/capture_shots.gd    Poses the game and writes the frames in screenshots/.
 ```
 
 ## License
