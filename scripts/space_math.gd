@@ -252,6 +252,116 @@ static func surface_textures(seed: int, tint: Color) -> Dictionary:
 		"rough": ImageTexture.create_from_image(rough_image),
 	}
 
+static func biome_textures(seed: int, profile: Dictionary) -> Dictionary:
+	var names = ["plains", "desert", "ice", "ocean", "lake", "mountain"]
+	var rough = [0.9, 0.83, 0.32, 0.1, 0.16, 0.95]
+	var textures = {}
+	for i in names.size():
+		var layer: String = names[i]
+		var colors: Array = profile[layer]
+		textures[layer] = _biome_texture(seed, i, colors[0], colors[1], colors[2], rough[i])
+	textures["normal"] = _biome_normal(seed)
+	return textures
+
+static func _biome_texture(seed: int, kind: int, dark: Color, light: Color, accent: Color, rough_base: float) -> ImageTexture:
+	var noise = FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.fractal_octaves = 4
+	noise.seed = 9000 + seed * 131 + kind * 17
+	var freq = 0.018 + float(kind) * 0.006 + float(seed % 5) * 0.004
+	if kind == 1:
+		freq = 0.012 + float(seed % 4) * 0.003
+	elif kind == 2:
+		freq = 0.04 + float(seed % 3) * 0.01
+	elif kind == 5:
+		freq = 0.03 + float(seed % 4) * 0.008
+	noise.frequency = freq
+	var fine = FastNoiseLite.new()
+	fine.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	fine.fractal_type = FastNoiseLite.FRACTAL_FBM
+	fine.fractal_octaves = 2
+	fine.seed = 12000 + seed * 19 + kind * 53
+	fine.frequency = freq * (3.5 + float(seed % 3))
+	var size = 256
+	var bytes = PackedByteArray()
+	bytes.resize(size * size * 4)
+	var ang = float(seed) * 0.9 + float(kind) * 1.7
+	var cs = cos(ang)
+	var sn = sin(ang)
+	var stretch = 2.4 + float(seed % 3) * 0.8
+	var wave_scale = 0.18 if kind == 3 else 0.32
+	for y in size:
+		for x in size:
+			var u = float(x) * cs - float(y) * sn
+			var v = float(x) * sn + float(y) * cs
+			if kind == 1:
+				u *= 0.35
+				v *= stretch
+			var n = noise.get_noise_2d(u, v)
+			var g = fine.get_noise_2d(u, v)
+			var blend = clampf(n * 0.5 + 0.5, 0.0, 1.0)
+			var color = dark.lerp(light, blend)
+			var rough = rough_base
+			if kind == 0:
+				color = color.lerp(accent, clampf(g, 0.0, 1.0) * 0.45)
+				if g > 0.35:
+					color = color.lerp(dark, 0.25)
+			elif kind == 1:
+				var dune = clampf(sin(u * 0.11 + n * 5.0) * 0.5 + 0.5, 0.0, 1.0)
+				color = dark.lerp(light, dune)
+				color = color.lerp(accent, clampf(-g, 0.0, 1.0) * 0.35)
+				rough = rough_base + (1.0 - dune) * 0.08
+			elif kind == 2:
+				var crack = clampf(1.0 - absf(g), 0.0, 1.0)
+				color = light.lerp(dark, blend * 0.35)
+				color = color.lerp(accent, smoothstep(0.62, 0.9, crack))
+				rough = rough_base + crack * 0.12
+			elif kind == 3 or kind == 4:
+				var wave = clampf(sin(u * wave_scale + n * 4.0) * 0.5 + 0.5, 0.0, 1.0)
+				color = dark.lerp(light, wave * 0.55 + blend * 0.35)
+				color = color.lerp(accent, clampf(g, 0.0, 1.0) * 0.2)
+				rough = rough_base + (1.0 - wave) * (0.08 if kind == 3 else 0.05)
+			else:
+				var ridge = clampf(1.0 - absf(n), 0.0, 1.0)
+				color = dark.lerp(light, ridge)
+				color = color.lerp(accent, smoothstep(0.15, 0.7, clampf(g, 0.0, 1.0)) * 0.55)
+				rough = rough_base - ridge * 0.06
+			var i = (y * size + x) * 4
+			bytes[i] = int(clampf(color.r, 0.0, 1.0) * 255.0)
+			bytes[i + 1] = int(clampf(color.g, 0.0, 1.0) * 255.0)
+			bytes[i + 2] = int(clampf(color.b, 0.0, 1.0) * 255.0)
+			bytes[i + 3] = int(clampf(rough, 0.04, 1.0) * 255.0)
+	var image = Image.create_from_data(size, size, false, Image.FORMAT_RGBA8, bytes)
+	image.generate_mipmaps()
+	return ImageTexture.create_from_image(image)
+
+static func _biome_normal(seed: int) -> ImageTexture:
+	var noise = FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.fractal_octaves = 4
+	noise.frequency = 0.045 + float(seed % 4) * 0.012
+	noise.seed = 1500 + seed * 29
+	var size = 256
+	var bytes = PackedByteArray()
+	bytes.resize(size * size * 4)
+	for y in size:
+		for x in size:
+			var h_l = noise.get_noise_2d(float(x - 1), float(y))
+			var h_r = noise.get_noise_2d(float(x + 1), float(y))
+			var h_d = noise.get_noise_2d(float(x), float(y - 1))
+			var h_u = noise.get_noise_2d(float(x), float(y + 1))
+			var nrm = Vector3((h_l - h_r) * 2.4, (h_d - h_u) * 2.4, 1.0).normalized()
+			var i = (y * size + x) * 4
+			bytes[i] = int((nrm.x * 0.5 + 0.5) * 255.0)
+			bytes[i + 1] = int((nrm.y * 0.5 + 0.5) * 255.0)
+			bytes[i + 2] = int(clampf(nrm.z * 0.5 + 0.5, 0.0, 1.0) * 255.0)
+			bytes[i + 3] = 255
+	var image = Image.create_from_data(size, size, false, Image.FORMAT_RGBA8, bytes)
+	image.generate_mipmaps()
+	return ImageTexture.create_from_image(image)
+
 static func make_material(color: Color, emission: float = 0.0) -> StandardMaterial3D:
 	var material = StandardMaterial3D.new()
 	material.albedo_color = color

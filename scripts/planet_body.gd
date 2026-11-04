@@ -15,6 +15,9 @@ var gm = 0.0
 var prev_position = Vector3.ZERO
 var prev_basis = Basis.IDENTITY
 var noise: FastNoiseLite
+var moisture_noise: FastNoiseLite
+var lake_noise: FastNoiseLite
+var terrain_profile: Dictionary = {}
 var amplitude = 32.0
 var atmo_shell = 0.0
 var atmo_drag = 1.0
@@ -43,17 +46,19 @@ func setup(host, data: Dictionary) -> void:
 	process_physics_priority = -20
 	var seed = int(data.seed) if data.has("seed") else 0
 	_build_noise(seed)
-	var material = SpaceMath.make_material(Color.WHITE)
-	var tex = SpaceMath.surface_textures(seed, color)
-	material.albedo_texture = tex.albedo
-	material.albedo_color = Color.WHITE
-	material.vertex_color_use_as_albedo = true
-	material.normal_enabled = true
-	material.normal_texture = tex.normal
-	material.roughness_texture = tex.rough
-	material.uv1_triplanar = true
-	material.uv1_world_triplanar = false
-	material.uv1_scale = Vector3(0.08, 0.08, 0.08)
+	# Terrain hues stay off the atmosphere palette. `color` is only the map tint.
+	var material = ShaderMaterial.new()
+	material.shader = load("res://shaders/terrain.gdshader")
+	var tex = SpaceMath.biome_textures(seed, terrain_profile)
+	material.set_shader_parameter("plains_tex", tex.plains)
+	material.set_shader_parameter("desert_tex", tex.desert)
+	material.set_shader_parameter("ice_tex", tex.ice)
+	material.set_shader_parameter("ocean_tex", tex.ocean)
+	material.set_shader_parameter("lake_tex", tex.lake)
+	material.set_shader_parameter("mountain_tex", tex.mountain)
+	material.set_shader_parameter("detail_normal", tex.normal)
+	material.set_shader_parameter("uv_scale", terrain_profile.uv_scale)
+	material.set_shader_parameter("normal_strength", terrain_profile.normal_strength)
 	# One mesh, so the shadow map has no cut between chunks.
 	var near = MeshInstance3D.new()
 	near.mesh = _terrain_mesh(MESH_SEGS, MESH_RINGS, 0, MESH_SEGS, 0, MESH_RINGS)
@@ -283,23 +288,145 @@ func _local_normal(dir: Vector3) -> Vector3:
 	return nrm.normalized() if nrm.length_squared() > 0.000001 else dir
 
 func _build_noise(seed: int) -> void:
-	noise = FastNoiseLite.new()
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-	noise.fractal_octaves = 4
-	noise.fractal_lacunarity = 2.0
-	noise.fractal_gain = 0.5
-	noise.seed = 4000 + seed * 97
-	noise.frequency = 2.2 + float(seed % 4) * 0.7
-	amplitude = radius * (0.028 + float(seed % 4) * 0.012)
+	terrain_profile = _terrain_profile(seed)
+	noise = _fractal_noise(4000 + seed * 97, terrain_profile.frequency, terrain_profile.octaves, terrain_profile.gain, terrain_profile.lacunarity)
+	moisture_noise = _fractal_noise(5100 + seed * 53, terrain_profile.moisture_frequency, 4, 0.5, 2.0)
+	lake_noise = _fractal_noise(6200 + seed * 29, terrain_profile.lake_frequency, 3, 0.55, 2.0)
+	amplitude = radius * terrain_profile.relief
+
+func _fractal_noise(seed: int, frequency: float, octaves: int, gain: float, lacunarity: float) -> FastNoiseLite:
+	var field = FastNoiseLite.new()
+	field.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	field.fractal_type = FastNoiseLite.FRACTAL_FBM
+	field.fractal_octaves = octaves
+	field.fractal_lacunarity = lacunarity
+	field.fractal_gain = gain
+	field.seed = seed
+	field.frequency = frequency
+	return field
+
+func _terrain_profile(seed: int) -> Dictionary:
+	# Each triple is shadow, lit, and speck. These stay clear of the atmosphere
+	# day colors: gold, cyan, violet, and orange.
+	match seed:
+		0:
+			return {
+				"sea": -0.34, "lake_level": -0.02, "lake_cut": 0.58,
+				"mountain_level": 0.26, "ice_lat": 0.84, "ice_alt": 0.4,
+				"desert_cut": 0.5, "frequency": 1.55, "octaves": 5, "gain": 0.52, "lacunarity": 2.15,
+				"moisture_frequency": 1.7, "lake_frequency": 8.0, "relief": 0.052,
+				"uv_scale": 0.05, "normal_strength": 0.9, "plant_count": 280,
+				"plains": [Color(0.16, 0.28, 0.10), Color(0.30, 0.42, 0.16), Color(0.08, 0.16, 0.05)],
+				"desert": [Color(0.42, 0.46, 0.48), Color(0.62, 0.66, 0.68), Color(0.28, 0.32, 0.34)],
+				"ice": [Color(0.62, 0.72, 0.78), Color(0.90, 0.94, 0.96), Color(0.40, 0.52, 0.60)],
+				"ocean": [Color(0.03, 0.05, 0.06), Color(0.08, 0.14, 0.13), Color(0.02, 0.04, 0.05)],
+				"lake": [Color(0.06, 0.18, 0.16), Color(0.16, 0.36, 0.30), Color(0.03, 0.09, 0.08)],
+				"mountain": [Color(0.08, 0.10, 0.12), Color(0.24, 0.28, 0.32), Color(0.04, 0.05, 0.06)],
+			}
+		1:
+			return {
+				"sea": -0.02, "lake_level": 0.22, "lake_cut": 0.56,
+				"mountain_level": 0.3, "ice_lat": 0.74, "ice_alt": 0.58,
+				"desert_cut": 0.4, "frequency": 2.5, "octaves": 4, "gain": 0.45, "lacunarity": 2.0,
+				"moisture_frequency": 1.15, "lake_frequency": 5.4, "relief": 0.03,
+				"uv_scale": 0.1, "normal_strength": 0.55, "plant_count": 1400,
+				"plains": [Color(0.06, 0.28, 0.04), Color(0.18, 0.55, 0.08), Color(0.03, 0.14, 0.02)],
+				"desert": [Color(0.46, 0.36, 0.16), Color(0.78, 0.64, 0.30), Color(0.32, 0.22, 0.08)],
+				"ice": [Color(0.78, 0.82, 0.84), Color(0.96, 0.97, 0.98), Color(0.55, 0.62, 0.66)],
+				"ocean": [Color(0.02, 0.05, 0.18), Color(0.05, 0.12, 0.36), Color(0.01, 0.03, 0.10)],
+				"lake": [Color(0.12, 0.18, 0.05), Color(0.26, 0.34, 0.10), Color(0.06, 0.10, 0.03)],
+				"mountain": [Color(0.32, 0.16, 0.08), Color(0.58, 0.32, 0.16), Color(0.16, 0.08, 0.04)],
+			}
+		2:
+			return {
+				"sea": -0.16, "lake_level": 0.2, "lake_cut": 0.5,
+				"mountain_level": 0.18, "ice_lat": 0.62, "ice_alt": 0.5,
+				"desert_cut": 0.38, "frequency": 1.85, "octaves": 4, "gain": 0.42, "lacunarity": 2.05,
+				"moisture_frequency": 2.1, "lake_frequency": 6.4, "relief": 0.026,
+				"uv_scale": 0.07, "normal_strength": 0.4, "plant_count": 180,
+				"plains": [Color(0.22, 0.34, 0.20), Color(0.40, 0.56, 0.32), Color(0.12, 0.22, 0.12)],
+				"desert": [Color(0.70, 0.72, 0.68), Color(0.90, 0.91, 0.86), Color(0.52, 0.54, 0.50)],
+				"ice": [Color(0.68, 0.80, 0.88), Color(0.94, 0.97, 0.99), Color(0.40, 0.58, 0.72)],
+				"ocean": [Color(0.04, 0.07, 0.11), Color(0.10, 0.16, 0.22), Color(0.02, 0.04, 0.06)],
+				"lake": [Color(0.28, 0.46, 0.52), Color(0.55, 0.74, 0.78), Color(0.16, 0.32, 0.40)],
+				"mountain": [Color(0.36, 0.16, 0.08), Color(0.64, 0.32, 0.16), Color(0.18, 0.08, 0.04)],
+			}
+		3:
+			return {
+				"sea": -0.04, "lake_level": 0.2, "lake_cut": 0.54,
+				"mountain_level": 0.28, "ice_lat": 0.82, "ice_alt": 0.62,
+				"desert_cut": 0.48, "frequency": 1.2, "octaves": 6, "gain": 0.5, "lacunarity": 2.05,
+				"moisture_frequency": 1.05, "lake_frequency": 4.4, "relief": 0.068,
+				"uv_scale": 0.045, "normal_strength": 0.95, "plant_count": 700,
+				"plains": [Color(0.34, 0.36, 0.08), Color(0.62, 0.64, 0.18), Color(0.22, 0.24, 0.05)],
+				"desert": [Color(0.30, 0.28, 0.22), Color(0.50, 0.46, 0.36), Color(0.18, 0.16, 0.12)],
+				"ice": [Color(0.74, 0.80, 0.84), Color(0.94, 0.96, 0.97), Color(0.50, 0.60, 0.68)],
+				"ocean": [Color(0.02, 0.16, 0.18), Color(0.08, 0.36, 0.34), Color(0.01, 0.08, 0.09)],
+				"lake": [Color(0.10, 0.22, 0.12), Color(0.22, 0.40, 0.18), Color(0.05, 0.12, 0.06)],
+				"mountain": [Color(0.16, 0.18, 0.22), Color(0.34, 0.38, 0.46), Color(0.08, 0.10, 0.14)],
+			}
+		_:
+			return {
+				"sea": -0.38, "lake_level": 0.16, "lake_cut": 0.5,
+				"mountain_level": 0.16, "ice_lat": 0.8, "ice_alt": 0.36,
+				"desert_cut": 0.58, "frequency": 4.1, "octaves": 5, "gain": 0.52, "lacunarity": 2.2,
+				"moisture_frequency": 3.3, "lake_frequency": 11.0, "relief": 0.08,
+				"uv_scale": 0.12, "normal_strength": 1.0, "plant_count": 60,
+				"plains": [Color(0.24, 0.26, 0.30), Color(0.40, 0.44, 0.50), Color(0.14, 0.16, 0.20)],
+				"desert": [Color(0.58, 0.60, 0.64), Color(0.78, 0.80, 0.84), Color(0.40, 0.42, 0.48)],
+				"ice": [Color(0.70, 0.78, 0.74), Color(0.90, 0.96, 0.92), Color(0.46, 0.58, 0.52)],
+				"ocean": [Color(0.03, 0.03, 0.04), Color(0.10, 0.10, 0.12), Color(0.02, 0.02, 0.03)],
+				"lake": [Color(0.16, 0.22, 0.20), Color(0.34, 0.46, 0.40), Color(0.08, 0.14, 0.12)],
+				"mountain": [Color(0.10, 0.11, 0.13), Color(0.28, 0.30, 0.34), Color(0.05, 0.05, 0.07)],
+			}
+
+func _surface_sample(dir: Vector3) -> Dictionary:
+	var raw = noise.get_noise_3d(dir.x, dir.y, dir.z)
+	var moist = moisture_noise.get_noise_3d(dir.x, dir.y, dir.z) * 0.5 + 0.5
+	var lake_n = lake_noise.get_noise_3d(dir.x, dir.y, dir.z) * 0.5 + 0.5
+	var lat = absf(dir.y)
+	var sea = float(terrain_profile.sea)
+	var below = 1.0 - smoothstep(sea - 0.07, sea + 0.025, raw)
+	var polar = smoothstep(float(terrain_profile.ice_lat) - 0.1, float(terrain_profile.ice_lat) + 0.04, lat)
+	var high_ice = smoothstep(float(terrain_profile.ice_alt) - 0.08, float(terrain_profile.ice_alt) + 0.04, raw)
+	var ocean_w = below * (1.0 - polar)
+	var shelf_w = below * polar
+	var ice_w = clampf(maxf(shelf_w, maxf(high_ice, polar) * (1.0 - below)), 0.0, 1.0)
+	var mountain_w = smoothstep(float(terrain_profile.mountain_level) - 0.05, float(terrain_profile.mountain_level) + 0.1, raw) * (1.0 - ice_w) * (1.0 - ocean_w)
+	var lake_top = float(terrain_profile.lake_level)
+	var lake_band = smoothstep(sea + 0.02, sea + 0.07, raw) * (1.0 - smoothstep(lake_top - 0.03, lake_top + 0.045, raw))
+	var lake_w = lake_band * smoothstep(float(terrain_profile.lake_cut) - 0.05, float(terrain_profile.lake_cut) + 0.12, lake_n) * (1.0 - ice_w) * (1.0 - mountain_w)
+	var covered = clampf(ocean_w + ice_w + mountain_w + lake_w, 0.0, 1.0)
+	var open = 1.0 - covered
+	var dry = 1.0 - smoothstep(float(terrain_profile.desert_cut) - 0.08, float(terrain_profile.desert_cut) + 0.1, moist)
+	var desert_w = open * dry
+	var plains_w = open * (1.0 - dry)
+	var sum = ocean_w + ice_w + mountain_w + lake_w + desert_w + plains_w
+	if sum < 0.0001:
+		plains_w = 1.0
+		sum = 1.0
+	var inv = 1.0 / sum
+	var height_unit = lerpf(raw, sea, clampf(ocean_w + shelf_w, 0.0, 1.0))
+	return {
+		"height": height_unit * amplitude,
+		"plains": plains_w * inv,
+		"desert": desert_w * inv,
+		"ice": ice_w * inv,
+		"ocean": ocean_w * inv,
+		"lake": lake_w * inv,
+		"mountain": mountain_w * inv,
+	}
 
 func _grid_vertex(x: int, y: int) -> Vector3:
 	return _sphere_vertex(x, y, MESH_SEGS, MESH_RINGS)
 
-func _sphere_vertex(x: int, y: int, segs: int, rings: int) -> Vector3:
+func _unit_dir(x: int, y: int, segs: int, rings: int) -> Vector3:
 	var phi = float(y) / float(rings) * PI
 	var theta = float(x) / float(segs) * TAU
-	var dir = Vector3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta))
+	return Vector3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta))
+
+func _sphere_vertex(x: int, y: int, segs: int, rings: int) -> Vector3:
+	var dir = _unit_dir(x, y, segs, rings)
 	return dir * (radius + height_offset(dir))
 
 func _update_lod() -> void:
@@ -317,15 +444,21 @@ func _update_lod() -> void:
 func _build_foliage(seed: int) -> void:
 	foliage = Node3D.new()
 	add_child(foliage)
+	var count = int(terrain_profile.plant_count)
+	if count <= 0:
+		return
 	var rng = RandomNumberGenerator.new()
 	rng.seed = 2500 + seed * 13
 	for kind in 3:
+		var spots = _plant_spots(kind, count)
+		if spots.is_empty():
+			continue
 		var multi = MultiMesh.new()
 		multi.transform_format = MultiMesh.TRANSFORM_3D
 		multi.mesh = _plant_mesh(seed, kind)
-		multi.instance_count = 1600
-		for i in multi.instance_count:
-			var dir = _foliage_dir(kind * 1600 + i, 4800)
+		multi.instance_count = spots.size()
+		for i in spots.size():
+			var dir: Vector3 = spots[i]
 			var pos = dir * (radius + height_offset(dir))
 			var basis = SpaceMath.basis_from_up_forward(dir, Vector3(rng.randf_range(-1.0, 1.0), 0.2, rng.randf_range(-1.0, 1.0)))
 			var scale = rng.randf_range(0.55, 1.8)
@@ -337,6 +470,18 @@ func _build_foliage(seed: int) -> void:
 		node.layers = visual_layer
 		foliage.add_child(node)
 
+func _plant_spots(kind: int, count: int) -> Array[Vector3]:
+	var spots: Array[Vector3] = []
+	var limit = count * 24
+	var offset = kind * limit
+	var guard = 0
+	while spots.size() < count and guard < limit:
+		var dir = _foliage_dir(offset + guard, limit * 3)
+		if _surface_sample(dir).plains > 0.58:
+			spots.append(dir)
+		guard += 1
+	return spots
+
 func _foliage_dir(index: int, total: int) -> Vector3:
 	var y = 1.0 - (float(index) + 0.5) / float(total) * 2.0
 	var phi = 2.399963229728653 * float(index)
@@ -344,15 +489,9 @@ func _foliage_dir(index: int, total: int) -> Vector3:
 	return Vector3(cos(phi) * radial, y, sin(phi) * radial)
 
 func _plant_mesh(seed: int, kind: int) -> ArrayMesh:
-	var tint = color.lightened(0.15 + float(kind) * 0.08).lerp(Color(0.15, 0.35, 0.12), 0.25 if seed == 1 else 0.05)
-	if seed == 0:
-		tint = color.lightened(0.2).lerp(Color(0.35, 0.12, 0.05), float(kind) * 0.25)
-	elif seed == 2:
-		tint = Color(0.75, 0.88, 0.95).lerp(color, 0.35 + float(kind) * 0.1)
-	elif seed == 3:
-		tint = color.darkened(0.1).lerp(Color(0.45, 0.32, 0.18), float(kind) * 0.2)
-	elif seed == 4:
-		tint = color.lightened(0.05).lerp(Color(0.4, 0.16, 0.08), float(kind) * 0.3)
+	var plains: Array = terrain_profile.plains
+	var tint: Color = plains[0].lerp(plains[1], 0.62).lerp(plains[2], float(kind) * 0.18)
+	tint = tint.lightened(0.04 + float(seed % 3) * 0.02)
 	var tool = SurfaceTool.new()
 	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	if kind == 0:
@@ -566,21 +705,26 @@ func _terrain_mesh(segs: int, rings: int, x_from: int, x_to: int, y_from: int, y
 	var y_count = y_to - y_from + 1
 	var verts = PackedVector3Array()
 	var normals = PackedVector3Array()
-	var colors = PackedColorArray()
+	var custom0 = PackedFloat32Array()
+	var custom1 = PackedFloat32Array()
 	verts.resize(x_count * y_count)
 	normals.resize(verts.size())
-	colors.resize(verts.size())
-	var low = color.darkened(0.42)
-	var high = color.lightened(0.28)
+	custom0.resize(verts.size() * 4)
+	custom1.resize(verts.size() * 2)
 	for iy in y_count:
 		for ix in x_count:
 			var index = iy * x_count + ix
-			var point = _sphere_vertex(x_from + ix, y_from + iy, segs, rings)
-			verts[index] = point
-			var sample = 0.0
-			if point.length() > 1.0 and amplitude > 0.001:
-				sample = (point.length() - radius) / amplitude
-			colors[index] = low.lerp(high, clampf(sample * 0.5 + 0.5, 0.0, 1.0))
+			var dir = _unit_dir(x_from + ix, y_from + iy, segs, rings)
+			var sample = _surface_sample(dir)
+			verts[index] = dir * (radius + sample.height)
+			var i4 = index * 4
+			custom0[i4] = sample.plains
+			custom0[i4 + 1] = sample.desert
+			custom0[i4 + 2] = sample.ice
+			custom0[i4 + 3] = sample.ocean
+			var i2 = index * 2
+			custom1[i2] = sample.lake
+			custom1[i2 + 1] = sample.mountain
 	for iy in y_count:
 		for ix in x_count:
 			var index = iy * x_count + ix
@@ -607,24 +751,13 @@ func _terrain_mesh(segs: int, rings: int, x_from: int, x_to: int, y_from: int, y
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_CUSTOM0] = custom0
+	arrays[Mesh.ARRAY_CUSTOM1] = custom1
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh = ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var flags = (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) | (Mesh.ARRAY_CUSTOM_RG_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
 	return mesh
-
-func _terrain_paint(seed: int) -> Array[Color]:
-	match seed:
-		0:
-			return [Color(0.95, 0.38, 0.06), Color(0.42, 0.08, 0.02), Color(0.82, 0.78, 0.7), Color(0.1, 0.09, 0.08)]
-		1:
-			return [Color(0.55, 0.9, 0.28), Color(0.05, 0.28, 0.08), Color(0.9, 0.78, 0.35), Color(0.18, 0.1, 0.04)]
-		2:
-			return [Color(0.92, 0.97, 1.0), Color(0.25, 0.45, 0.72), Color(0.55, 0.62, 0.78), Color(0.08, 0.1, 0.18)]
-		3:
-			return [Color(0.86, 0.28, 0.16), Color(0.28, 0.05, 0.06), Color(0.78, 0.62, 0.4), Color(0.12, 0.07, 0.05)]
-		_:
-			return [Color(0.92, 0.62, 0.22), Color(0.32, 0.14, 0.05), Color(0.7, 0.68, 0.64), Color(0.08, 0.07, 0.07)]
 
 func _seam_normal(x: int, y: int, segs: int, rings: int) -> Vector3:
 	var west = x - 1
