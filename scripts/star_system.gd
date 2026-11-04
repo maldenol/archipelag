@@ -88,15 +88,14 @@ func _input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 func _physics_process(delta: float) -> void:
-	# More solver steps of the same size. Raising the tick rate alone shrinks
-	# each step, so the clock stays real-time and warp appears to do nothing.
 	var scale = 1.0
 	if playing and controlled == rocket and rocket != null and not rocket.exploded:
 		scale = warp_factor()
 	if Engine.time_scale != scale:
 		Engine.time_scale = scale
-	if Engine.physics_ticks_per_second != 60:
-		Engine.physics_ticks_per_second = 60
+	var tps = 60 * scale
+	if Engine.physics_ticks_per_second != tps:
+		Engine.physics_ticks_per_second = tps
 	drive_clock(delta)
 	_aim_sun()
 

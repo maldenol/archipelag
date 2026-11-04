@@ -408,9 +408,9 @@ func _physics_process(delta: float) -> void:
 		if Input.is_physical_key_pressed(KEY_D):
 			pilot_torque.y -= 1.0
 		if Input.is_physical_key_pressed(KEY_Q):
-			pilot_torque.z -= 1.0
-		if Input.is_physical_key_pressed(KEY_E):
 			pilot_torque.z += 1.0
+		if Input.is_physical_key_pressed(KEY_E):
+			pilot_torque.z -= 1.0
 		if pilot_torque.length_squared() > 0.0001:
 			attitude = ""
 			hold_ready = false

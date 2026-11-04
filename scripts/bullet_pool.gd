@@ -4,7 +4,7 @@ const BulletScript = preload("res://scripts/projectile.gd")
 const ImpactScript = preload("res://scripts/impact_effect.gd")
 
 const BULLET_COUNT = 48
-const EFFECT_COUNT = 24
+const EFFECT_COUNT = 48
 
 var bullets = []
 var effects = []
