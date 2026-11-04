@@ -214,9 +214,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.pressed and system.map_expanded:
 		var button = event as InputEventMouseButton
 		if button.button_index == MOUSE_BUTTON_WHEEL_UP:
-			system.zoom_map(1.0 / 1.12)
+			system.zoom_map(false)
 		elif button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			system.zoom_map(1.12)
+			system.zoom_map(true)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var key = (event as InputEventKey).physical_keycode
 		if key == KEY_M:

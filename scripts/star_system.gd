@@ -39,6 +39,8 @@ var boot_to_menu = true
 var dying = false
 var sound
 var menu
+const CRITICAL_SPEED = 50.0
+const ZOOM_FRACTION = 1.1
 
 func _ready() -> void:
 	add_to_group("star_system")
@@ -93,9 +95,8 @@ func _physics_process(delta: float) -> void:
 		scale = warp_factor()
 	if Engine.time_scale != scale:
 		Engine.time_scale = scale
-	var tps = 60 * scale
-	if Engine.physics_ticks_per_second != tps:
-		Engine.physics_ticks_per_second = tps
+	if Engine.physics_ticks_per_second != 60:
+		Engine.physics_ticks_per_second = 60
 	drive_clock(delta)
 	_aim_sun()
 
@@ -208,6 +209,9 @@ func warp_faster() -> void:
 func warp_slower() -> void:
 	warp_index = maxi(warp_index - 1, 0)
 
+func warp_default() -> void:
+	warp_index = 0
+
 func drive_clock(amount: float) -> void:
 	if dying:
 		return
@@ -241,7 +245,7 @@ func _aim_sun() -> void:
 	sun.directional_shadow_max_distance = clampf(reach, 80.0, 900.0)
 	sun.directional_shadow_fade_start = 0.42
 	sun.light_cull_mask = 1
-	var near_body = ground if ground != null and ground.near_viewer(target) else null
+	var near_body = ground if ground != null and ground.is_near_viewer(target, 10000.0) else null
 	var casters = 1
 	if near_body != null:
 		casters |= near_body.visual_layer
@@ -252,8 +256,8 @@ func _aim_sun() -> void:
 func orbit_map(yaw: float, pitch: float) -> void:
 	map_quat = (map_quat * Quaternion(Vector3.UP, yaw) * Quaternion(Vector3.RIGHT, pitch)).normalized()
 
-func zoom_map(factor: float) -> void:
-	map_distance = clampf(map_distance * factor, 200.0, 600000.0)
+func zoom_map(out: bool) -> void:
+	map_distance = clampf(map_distance * (ZOOM_FRACTION if out else 1.0 / ZOOM_FRACTION), 200.0, 400000.0)
 
 func _build_map() -> void:
 	orbit_root = Node3D.new()
@@ -456,9 +460,8 @@ func drag_acceleration(position: Vector3, velocity: Vector3, area: float, mass: 
 		return Vector3.ZERO
 	# Thick at the ground, then thinner with altitude. Linear until the critical speed, then v².
 	var rho = 5.0 * density
-	var critical = 32.0
 	var coeff = 0.5 * rho * drag_scale * area / mass
-	var magnitude = coeff * speed * critical if speed < critical else coeff * speed * speed
+	var magnitude = coeff * speed if speed < CRITICAL_SPEED else coeff * speed * speed
 	if dt > 0.0:
 		magnitude = minf(magnitude, speed / dt)
 	return -rel / speed * magnitude
@@ -675,6 +678,7 @@ func try_board() -> void:
 			player.motion_ready = true
 			player.space_velocity = inherited
 		controlled = player
+		warp_default()
 
 func respawn_player(at_home: bool) -> void:
 	var xform: Transform3D = _home_spawn() if at_home else _spawn_near(player.global_position)

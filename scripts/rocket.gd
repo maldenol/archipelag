@@ -11,8 +11,8 @@ const ANG_ACCEL = 2.0
 const ANG_DAMP = 1.5
 const PARK_CLEARANCE = 1.65
 const SUPPORT_DOT = 0.76
-const ZOOM_MIN = 2.2
-const ZOOM_MAX = 120.0
+const ZOOM_MIN = 2.5
+const ZOOM_MAX = 300.0
 const FOOT_OFFSETS: Array[Vector3] = [
 	Vector3(1.42, 0.0, 1.65),
 	Vector3(-1.42, 0.0, 1.65),
@@ -177,10 +177,10 @@ func _build_collision() -> void:
 	# CapsuleShape3D runs along Y. Tip it onto the hull axis, nose toward -Z.
 	var hull = CapsuleShape3D.new()
 	hull.radius = 0.4
-	hull.height = 2.3
+	hull.height = 2.8
 	var hull_shape = CollisionShape3D.new()
 	hull_shape.shape = hull
-	hull_shape.position = Vector3(0.0, 0.0, -0.55)
+	hull_shape.position = Vector3(0.0, 0.0, -0.2)
 	hull_shape.rotation.x = PI * 0.5
 	add_child(hull_shape)
 	_track_shape(false)
@@ -322,9 +322,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var button = event as InputEventMouseButton
 		if system.map_expanded:
 			if button.button_index == MOUSE_BUTTON_WHEEL_UP:
-				system.zoom_map(1.0 / 1.12)
+				system.zoom_map(false)
 			elif button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				system.zoom_map(1.12)
+				system.zoom_map(true)
 		elif button.button_index == MOUSE_BUTTON_WHEEL_UP:
 			cam_distance = clampf(cam_distance / 1.12, ZOOM_MIN, ZOOM_MAX)
 		elif button.button_index == MOUSE_BUTTON_WHEEL_DOWN:
@@ -414,6 +414,8 @@ func _physics_process(delta: float) -> void:
 		if pilot_torque.length_squared() > 0.0001:
 			attitude = ""
 			hold_ready = false
+		if (not hold_ready or thrust_held) and not system.warp_factor() == 1:
+			system.warp_default()
 	impact_lock = maxf(impact_lock - delta, 0.0)
 	if flying and not freeze:
 		_note_touchdown()

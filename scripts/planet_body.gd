@@ -103,8 +103,8 @@ func update_motion(time: float) -> void:
 	_aim_atmosphere()
 	_update_lod()
 
-func near_viewer(viewer: Vector3) -> bool:
-	return global_position.distance_to(viewer) < radius * 4.0 + 6000.0
+func is_near_viewer(viewer: Vector3, threshold: float) -> bool:
+	return global_position.distance_to(viewer) < radius + threshold
 
 func set_star_shadows(enabled: bool, reach: float) -> void:
 	if star_light == null:
@@ -312,16 +312,16 @@ func _terrain_profile(seed: int) -> Dictionary:
 		0:
 			return {
 				"sea": -0.34, "lake_level": -0.02, "lake_cut": 0.58,
-				"mountain_level": 0.26, "ice_lat": 0.84, "ice_alt": 0.4,
+				"mountain_level": 0.26, "ice_lat": 0.95, "ice_alt": 0.4,
 				"desert_cut": 0.5, "frequency": 1.55, "octaves": 5, "gain": 0.52, "lacunarity": 2.15,
 				"moisture_frequency": 1.7, "lake_frequency": 8.0, "relief": 0.052,
 				"uv_scale": 0.05, "normal_strength": 0.9, "plant_count": 280,
 				"plains": [Color(0.16, 0.28, 0.10), Color(0.30, 0.42, 0.16), Color(0.08, 0.16, 0.05)],
-				"desert": [Color(0.42, 0.46, 0.48), Color(0.62, 0.66, 0.68), Color(0.28, 0.32, 0.34)],
+				"desert": [Color(0.445, 0.478, 0.208, 1.0), Color(0.865, 0.581, 0.309, 1.0), Color(0.378, 0.305, 0.023, 1.0)],
 				"ice": [Color(0.62, 0.72, 0.78), Color(0.90, 0.94, 0.96), Color(0.40, 0.52, 0.60)],
-				"ocean": [Color(0.03, 0.05, 0.06), Color(0.08, 0.14, 0.13), Color(0.02, 0.04, 0.05)],
-				"lake": [Color(0.06, 0.18, 0.16), Color(0.16, 0.36, 0.30), Color(0.03, 0.09, 0.08)],
-				"mountain": [Color(0.08, 0.10, 0.12), Color(0.24, 0.28, 0.32), Color(0.04, 0.05, 0.06)],
+				"ocean": [Color(0.022, 0.045, 0.099, 1.0), Color(0.061, 0.147, 0.102, 1.0), Color(0.008, 0.04, 0.076, 1.0)],
+				"lake": [Color(0.06, 0.18, 0.16), Color(0.16, 0.36, 0.30), Color(0.021, 0.083, 0.132, 1.0)],
+				"mountain": [Color(0.147, 0.177, 0.206, 1.0), Color(0.24, 0.28, 0.32), Color(0.144, 0.165, 0.186, 1.0)],
 			}
 		1:
 			return {
@@ -433,13 +433,15 @@ func _update_lod() -> void:
 	var viewer = global_position
 	if system != null and system.controlled != null:
 		viewer = system.controlled.global_position
-	var near = near_viewer(viewer)
+		if system.map_camera != null and system.map_camera.current:
+			viewer = system.map_camera.global_position
+	var near_terrain = is_near_viewer(viewer, 10000.0)
 	for chunk in terrain_chunks:
-		chunk.visible = near
+		chunk.visible = near_terrain
 	if far_terrain:
-		far_terrain.visible = not near
+		far_terrain.visible = not near_terrain
 	if foliage:
-		foliage.visible = near
+		foliage.visible = is_near_viewer(viewer, 250.0)
 
 func _build_foliage(seed: int) -> void:
 	foliage = Node3D.new()
