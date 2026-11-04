@@ -23,6 +23,8 @@ var ground_shape: ConcavePolygonShape3D
 var terrain_chunks: Array[MeshInstance3D] = []
 var far_terrain: MeshInstance3D
 var foliage: Node3D
+var visual_layer = 2
+var star_light: DirectionalLight3D
 
 func setup(host, data: Dictionary) -> void:
 	sync_to_physics = false
@@ -33,6 +35,7 @@ func setup(host, data: Dictionary) -> void:
 	radius = data.radius
 	surface_gravity = data.gravity
 	gm = surface_gravity * radius * radius
+	visual_layer = int(data.visual_layer) if data.has("visual_layer") else 2
 	# Moved in the physics step. Godot publishes that motion to rigid bodies.
 	sync_to_physics = false
 	collision_layer = 1
@@ -56,6 +59,7 @@ func setup(host, data: Dictionary) -> void:
 	near.mesh = _terrain_mesh(MESH_SEGS, MESH_RINGS, 0, MESH_SEGS, 0, MESH_RINGS)
 	near.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	near.material_override = material
+	near.layers = visual_layer
 	add_child(near)
 	terrain_chunks.append(near)
 	var faces = near.mesh.get_faces()
@@ -63,9 +67,11 @@ func setup(host, data: Dictionary) -> void:
 	far_terrain.mesh = _terrain_mesh(40, 20, 0, 40, 0, 20)
 	far_terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	far_terrain.material_override = material
+	far_terrain.layers = visual_layer
 	far_terrain.visible = false
 	add_child(far_terrain)
 	_build_foliage(seed)
+	_build_star_light()
 	ground_shape = ConcavePolygonShape3D.new()
 	ground_shape.backface_collision = true
 	ground_shape.set_faces(faces)
@@ -83,6 +89,7 @@ func setup(host, data: Dictionary) -> void:
 
 func place(time: float) -> void:
 	global_transform = Transform3D(SpaceMath.orbit_rotation(orbit, time), location_at(time))
+	_aim_star_light()
 
 func update_motion(time: float) -> void:
 	prev_position = global_position
@@ -90,6 +97,20 @@ func update_motion(time: float) -> void:
 	place(time)
 	_aim_atmosphere()
 	_update_lod()
+
+func near_viewer(viewer: Vector3) -> bool:
+	return global_position.distance_to(viewer) < radius * 4.0 + 6000.0
+
+func set_star_shadows(enabled: bool, reach: float) -> void:
+	if star_light == null:
+		return
+	star_light.shadow_enabled = enabled
+	if enabled:
+		star_light.shadow_caster_mask = visual_layer | 1
+		star_light.directional_shadow_max_distance = reach
+		star_light.directional_shadow_fade_start = 0.42
+	else:
+		star_light.shadow_caster_mask = visual_layer
 
 func location_at(time: float) -> Vector3:
 	var local = SpaceMath.orbit_position(orbit, time)
@@ -285,7 +306,7 @@ func _update_lod() -> void:
 	var viewer = global_position
 	if system != null and system.controlled != null:
 		viewer = system.controlled.global_position
-	var near = global_position.distance_to(viewer) < radius * 4.0 + 6000.0
+	var near = near_viewer(viewer)
 	for chunk in terrain_chunks:
 		chunk.visible = near
 	if far_terrain:
@@ -313,6 +334,7 @@ func _build_foliage(seed: int) -> void:
 		var node = MultiMeshInstance3D.new()
 		node.multimesh = multi
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		node.layers = visual_layer
 		foliage.add_child(node)
 
 func _foliage_dir(index: int, total: int) -> Vector3:
@@ -505,6 +527,39 @@ func _aim_atmosphere() -> void:
 	if to_sun.length_squared() < 1.0:
 		return
 	atmo_mat.set_shader_parameter("sun_dir", to_sun.normalized())
+
+func _build_star_light() -> void:
+	star_light = DirectionalLight3D.new()
+	star_light.top_level = true
+	star_light.light_color = Color(1.0, 0.95, 0.86)
+	star_light.light_energy = 0.72
+	star_light.shadow_enabled = false
+	star_light.light_cull_mask = visual_layer
+	star_light.shadow_caster_mask = visual_layer
+	star_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	star_light.directional_shadow_max_distance = 900.0
+	star_light.directional_shadow_split_1 = 0.18
+	star_light.directional_shadow_blend_splits = true
+	star_light.shadow_bias = 0.06
+	star_light.shadow_normal_bias = 0.8
+	star_light.shadow_blur = 0.35
+	star_light.light_angular_distance = 2.0
+	add_child(star_light)
+
+func _aim_star_light() -> void:
+	if star_light == null or system == null:
+		return
+	var dir = global_position - system.global_position
+	var dist = dir.length()
+	if dist < 1.0:
+		return
+	var aim = dir / dist
+	var up = Vector3.UP
+	if absf(aim.dot(up)) > 0.98:
+		up = Vector3.RIGHT
+	star_light.global_basis = Basis.looking_at(aim, up)
+	var apparent = rad_to_deg(2.0 * asin(clampf(system.star_radius / dist, 0.0, 0.999)))
+	star_light.light_angular_distance = clampf(apparent * 0.15, 0.6, 2.0)
 
 func _terrain_mesh(segs: int, rings: int, x_from: int, x_to: int, y_from: int, y_to: int) -> ArrayMesh:
 	var x_count = x_to - x_from + 1

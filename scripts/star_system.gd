@@ -240,6 +240,14 @@ func _aim_sun() -> void:
 		reach = maxf(reach, 900.0)
 	sun.directional_shadow_max_distance = clampf(reach, 80.0, 900.0)
 	sun.directional_shadow_fade_start = 0.42
+	sun.light_cull_mask = 1
+	var near_body = ground if ground != null and ground.near_viewer(target) else null
+	var casters = 1
+	if near_body != null:
+		casters |= near_body.visual_layer
+	sun.shadow_caster_mask = casters
+	for planet in planets:
+		planet.set_star_shadows(planet == near_body, sun.directional_shadow_max_distance)
 
 func orbit_map(yaw: float, pitch: float) -> void:
 	map_quat = (map_quat * Quaternion(Vector3.UP, yaw) * Quaternion(Vector3.RIGHT, pitch)).normalized()
@@ -739,6 +747,8 @@ func _build_environment() -> void:
 	sun.shadow_normal_bias = 0.8
 	sun.shadow_blur = 0.35
 	sun.light_angular_distance = 2.0
+	sun.light_cull_mask = 1
+	sun.shadow_caster_mask = 1
 	add_child(sun)
 
 func _star_cubemap() -> Cubemap:
@@ -806,6 +816,7 @@ func _build_star() -> void:
 	ball.rings = 64
 	mesh.mesh = ball
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mesh.layers = 1 << 19
 	mesh.material_override = SpaceMath.make_material(Color(1.0, 0.9, 0.7), 6.0)
 	star.add_child(mesh)
 	add_child(star)
@@ -838,6 +849,7 @@ func _build_planets() -> void:
 			"radius": spec.radius,
 			"gravity": spec.gravity,
 			"seed": spec.seed,
+			"visual_layer": 1 << (planets.size() + 1),
 		})
 		planets.append(planet)
 	_build_satellite()
@@ -867,6 +879,7 @@ func _build_satellite() -> void:
 		"radius": 380.0,
 		"gravity": 8.0,
 		"seed": 4,
+		"visual_layer": 1 << (planets.size() + 1),
 	})
 	planets.append(moon)
 
